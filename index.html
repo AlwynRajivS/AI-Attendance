@@ -1,0 +1,222 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Dashboard - AI Attendance</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f0f2f5;color:#333;margin:0;}
+h1{text-align:center;margin-top:20px;color:#4CAF50;}
+.tabs{display:flex;justify-content:center;background:#333;}
+.tab-btn{flex:1;padding:15px;cursor:pointer;background:#333;color:white;border:none;font-size:16px;transition:.3s;}
+.tab-btn:hover{background:#4CAF50;}
+.tab-content{display:none;padding:20px;max-width:1000px;margin:0 auto;background:white;margin-top:10px;border-radius:10px;box-shadow:0 0 10px rgba(0,0,0,.1);}
+video,canvas{border:2px solid #444;border-radius:8px;margin-top:10px;}
+input,button,select{padding:8px;margin:5px;font-size:14px;border-radius:5px;border:1px solid #ccc;}
+table{border-collapse:collapse;width:100%;margin-top:10px;}
+table,th,td{border:1px solid #ddd;}
+th,td{padding:10px;text-align:center;}
+th{background:#4CAF50;color:white;}
+#modelStatus{font-weight:bold;color:red;margin:10px 0;}
+</style>
+</head>
+<body>
+<h1>🎓 College AI Attendance - Admin Dashboard</h1>
+
+<div class="tabs">
+  <button class="tab-btn" onclick="openTab('train')">📷 Face Training</button>
+  <button class="tab-btn" onclick="openTab('students')">👨‍🎓 Students</button>
+  <button class="tab-btn" onclick="openTab('attendance')">📝 Attendance</button>
+  <button class="tab-btn" onclick="openTab('summary')">📊 College Summary</button>
+</div>
+
+<!-- TAB 1: Face Training -->
+<div id="train" class="tab-content">
+<h2>📷 Train Student Faces</h2>
+<p id="modelStatus">⏳ Loading models...</p>
+<div id="train-section" style="display:none;">
+  <video id="trainVideo" width="480" height="360" autoplay muted></video>
+  <canvas id="overlay" width="480" height="360"></canvas><br>
+  <input type="text" id="studentName" placeholder="Enter Student Name">
+  <input type="text" id="studentClass" placeholder="Enter Class (e.g. CSE-A)">
+  <button onclick="captureFace()">Capture & Save</button>
+  <p id="trainResult"></p>
+</div>
+</div>
+
+<!-- TAB 2: Students -->
+<div id="students" class="tab-content">
+<h2>👨‍🎓 Class-wise Students</h2>
+<select id="classSelect" onchange="loadStudents()">
+  <option value="">-- Select Class --</option>
+</select>
+<div id="studentsTable"></div>
+</div>
+
+<!-- TAB 3: Attendance -->
+<div id="attendance" class="tab-content">
+<h2>📝 Class & Course Attendance</h2>
+<select id="classFilter">
+  <option value="">-- Select Class --</option>
+</select>
+<select id="courseFilter">
+  <option value="">-- Select Course --</option>
+</select>
+<button onclick="loadAttendance()">Load Attendance</button>
+<div id="attendanceTable"></div>
+</div>
+
+<!-- TAB 4: Summary -->
+<div id="summary" class="tab-content">
+<h2>📊 College Summary</h2>
+<button onclick="loadSummary()">Load Summary</button>
+<div id="summaryData"></div>
+</div>
+
+<!-- face-api.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRJSwoxxzqTaO5nfVfZ4RBTpX08U4jel2BGb7V2G8EQvFImDr2qTP2lQEOOz42VjSqdg/exec"; // Replace with your Google Apps Script Web App URL
+
+// --- Tabs ---
+function openTab(tabId){
+  document.querySelectorAll(".tab-content").forEach(t=>t.style.display="none");
+  document.getElementById(tabId).style.display="block";
+}
+openTab('train');
+
+// --- Face Training ---
+let video = document.getElementById("trainVideo");
+let canvas = document.getElementById("overlay");
+let modelsLoaded = false;
+
+// Auto-load models and start video
+async function loadModels(){
+  const status = document.getElementById("modelStatus");
+  status.innerText = "⏳ Loading models from CDN...";
+  try {
+    const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models/';
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelsLoaded = true;
+    status.innerText = "✅ Models Loaded!";
+    document.getElementById("train-section").style.display = "block";
+    await startVideo();
+    detectFaceLoop();
+  } catch(err){
+    status.innerText = "❌ Error loading models: "+err;
+    console.error(err);
+  }
+}
+
+// Start webcam
+async function startVideo(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{ width:480, height:360 }});
+    video.srcObject = stream;
+    await new Promise(resolve => video.onloadedmetadata = () => resolve());
+  } catch(err){
+    document.getElementById("modelStatus").innerText="❌ Webcam error:"+err;
+    console.error(err);
+  }
+}
+
+// Detection loop to show overlay
+async function detectFaceLoop(){
+  const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 });
+  const displaySize = { width: video.width, height: video.height };
+  faceapi.matchDimensions(canvas, displaySize);
+
+  setInterval(async ()=>{
+    if(!modelsLoaded) return;
+    const detections = await faceapi.detectAllFaces(video, options)
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+    canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+    faceapi.draw.drawDetections(canvas,resizedDetections);
+  }, 200);
+}
+
+// Capture face and push to Google Sheet
+async function captureFace(){
+  if(!modelsLoaded) return alert("Models not loaded!");
+  const name = document.getElementById("studentName").value.trim();
+  const cls = document.getElementById("studentClass").value.trim();
+  if(!name || !cls) return alert("Enter name and class!");
+
+  const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 });
+  const detection = await faceapi.detectSingleFace(video, options)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+
+  if(!detection){
+    alert("⚠️ No face detected! Make sure your face is in view and well-lit.");
+    return;
+  }
+
+  const resized = faceapi.resizeResults(detection, { width: video.width, height: video.height });
+  faceapi.draw.drawDetections(canvas,resized);
+
+  // Push descriptor to Google Sheet
+  fetch(SCRIPT_URL, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "addStudent",
+      name: name,
+      class: cls,
+      descriptor: JSON.stringify(Array.from(detection.descriptor))
+    })
+  })
+  .then(res => res.text())
+  .then(txt => document.getElementById("trainResult").innerText = "✅ Face saved for " + name)
+  .catch(err => console.error(err));
+}
+
+// --- Google Sheets Dynamic Tabs ---
+async function loadStudents(){
+  let classSel=document.getElementById("classSelect");
+  if(classSel.options.length<=1){
+    const data=await fetch(SCRIPT_URL+"?action=getStudents").then(r=>r.json());
+    const classes=[...new Set(data.map(d=>d[1]))];
+    classes.forEach(c=>{let opt=document.createElement("option"); opt.value=c; opt.text=c; classSel.add(opt);});
+    const classFilter=document.getElementById("classFilter");
+    classes.forEach(c=>{let opt=document.createElement("option"); opt.value=c; opt.text=c; classFilter.add(opt);});
+  }
+  const cls=classSel.value;
+  const students=await fetch(SCRIPT_URL+"?action=getStudents").then(r=>r.json());
+  let html="<table><tr><th>Name</th><th>Class</th></tr>";
+  students.filter(s=>!cls||s[1]==cls).forEach(s=>html+=`<tr><td>${s[0]}</td><td>${s[1]}</td></tr>`);
+  html+="</table>";
+  document.getElementById("studentsTable").innerHTML=html;
+}
+
+async function loadAttendance(){
+  const cls=document.getElementById("classFilter").value;
+  const course=document.getElementById("courseFilter").value;
+  const data=await fetch(SCRIPT_URL+"?action=getAttendance").then(r=>r.json());
+  let html="<table><tr><th>Date</th><th>Class</th><th>Name</th><th>Status</th></tr>";
+  data.filter(d=>(!cls||d[1]==cls)&&(!course||d[2]==course))
+      .forEach(d=>html+=`<tr><td>${d[0]}</td><td>${d[1]}</td><td>${d[2]}</td><td>${d[3]}</td></tr>`);
+  html+="</table>";
+  document.getElementById("attendanceTable").innerHTML=html;
+}
+
+async function loadSummary(){
+  const data=await fetch(SCRIPT_URL+"?action=getSummary").then(r=>r.json());
+  let html="<table><tr><th>Dept</th><th>Class</th><th>Strength</th><th>Present</th><th>Absent</th><th>%</th></tr>";
+  data.forEach(r=>html+=`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}%</td></tr>`);
+  html+="</table>";
+  document.getElementById("summaryData").innerHTML=html;
+}
+
+// Auto-load models when page is ready
+document.addEventListener("DOMContentLoaded", () => {
+  loadModels();
+});
+</script>
+</body>
+</html>
