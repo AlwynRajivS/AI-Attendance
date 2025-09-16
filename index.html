@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -76,7 +76,7 @@ th{background:#4CAF50;color:white;}
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
 <script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRJSwoxxzqTaO5nfVfZ4RBTpX08U4jel2BGb7V2G8EQvFImDr2qTP2lQEOOz42VjSqdg/exec"; // Replace with your Google Apps Script Web App URL
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRJSwoxxzqTaO5nfVfZ4RBTpX08U4jel2BGb7V2G8EQvFImDr2qTP2lQEOOz42VjSqdg/exec"; // Replace with your deployed GAS Web App link
 
 // --- Tabs ---
 function openTab(tabId){
@@ -151,24 +151,23 @@ async function captureFace(){
       .withFaceLandmarks()
       .withFaceDescriptor();
 
-  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
-
   if(!detection){
     alert("⚠️ No face detected! Make sure your face is in view and well-lit.");
     return;
   }
 
-  const resized = faceapi.resizeResults(detection, { width: video.width, height: video.height });
-  faceapi.draw.drawDetections(canvas,resized);
+  const descriptorArray = Array.from(detection.descriptor);
 
-  // Push descriptor to Google Sheet
+  // Push name, class, and descriptor to Students sheet
   fetch(SCRIPT_URL, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "addStudent",
+      sheet: "Students",
       name: name,
       class: cls,
-      descriptor: JSON.stringify(Array.from(detection.descriptor))
+      descriptor: descriptorArray
     })
   })
   .then(res => res.text())
@@ -213,7 +212,7 @@ async function loadSummary(){
   document.getElementById("summaryData").innerHTML=html;
 }
 
-// Auto-load models when page is ready
+// Auto-load models
 document.addEventListener("DOMContentLoaded", () => {
   loadModels();
 });
