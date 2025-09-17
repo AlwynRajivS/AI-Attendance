@@ -2,132 +2,143 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Admin Face Training</title>
+  <title>Admin - Face Capture & Recognition</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; background: #f0f2f5; margin: 0; }
-    h1 { background: #4CAF50; color: white; padding: 15px; margin: 0; }
-    #video, #overlay { border: 2px solid #444; border-radius: 10px; margin-top: 15px; }
+    video, canvas { display: block; margin: 10px auto; }
     input, button { padding: 10px; margin: 10px; font-size: 16px; border-radius: 5px; }
-    #descriptorPreview { margin-top: 10px; font-weight: bold; color: green; }
-    #status { font-weight: bold; color: red; margin-top: 10px; }
+    #status { font-weight: bold; color: green; }
+    #descLength { font-weight: bold; color: blue; }
   </style>
-  <!-- ✅ Correct face-api.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
 <body>
-  <h1>📸 Admin – Face Capture & Training</h1>
-
-  <p id="status">⏳ Loading models...</p>
-
-  <video id="video" width="480" height="360" autoplay muted playsinline></video>
-  <canvas id="overlay" width="480" height="360"></canvas>
-
+  <h2>Admin - Face Capture & Live Recognition</h2>
+  
   <div>
     <input type="text" id="studentName" placeholder="Enter Student Name">
-    <button id="captureBtn">Capture & Save</button>
+    <button onclick="captureAndSave()">Capture & Save</button>
+    <p id="status">Loading models...</p>
+    <p id="descLength">Descriptor Length: 0</p>
   </div>
 
-  <p id="descriptorPreview">Descriptor Length: 0</p>
+  <video id="video" width="400" height="300" autoplay muted playsinline></video>
+  <canvas id="overlay" width="400" height="300"></canvas>
 
   <script>
     const video = document.getElementById("video");
     const overlay = document.getElementById("overlay");
     const ctx = overlay.getContext("2d");
     const statusEl = document.getElementById("status");
-    const descriptorPreview = document.getElementById("descriptorPreview");
+    const descLengthEl = document.getElementById("descLength");
 
-    const SHEET_URL = "https://script.google.com/macros/s/AKfycbxHwpET5_cjBGxSx4Ae-mYcTt21POswSiJ0M62l1YJaskrTL-cuiRqA7fuXaxaSBPulrw/exec"; // <-- Replace with your Google Apps Script WebApp URL
+    const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyHCjSic3B_NjUqA-lomjO5ehqVgRRhUkF1szEtvhCFP-9fuva-4ZH7Bmz9ToSm06BR0Q/exec"; // replace with your Apps Script URL
+    let labeledDescriptors = [];
+    let faceMatcher;
 
-    // Load Face API models
-    async function loadModels() {
+    // Load models and start video
+    async function init() {
       try {
-        const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models/";
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models/"),
+          faceapi.nets.faceLandmark68Net.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models/"),
+          faceapi.nets.faceRecognitionNet.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models/")
+        ]);
 
-        statusEl.textContent = "✅ Models loaded!";
-        await startVideo();
-        runDetection();
-      } catch (err) {
-        statusEl.textContent = "❌ Error loading models: " + err;
-        console.error(err);
-      }
-    }
-
-    // Start camera
-    async function startVideo() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        statusEl.innerText = "✅ Models loaded. Starting camera...";
+        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         video.srcObject = stream;
-        await new Promise(resolve => video.onloadedmetadata = () => resolve());
-        console.log("✅ Camera started");
+        video.onplay = () => setInterval(detectAndRecognize, 200);
+
+        // Load saved students
+        await loadStudents();
       } catch (err) {
-        statusEl.textContent = "❌ Webcam error: " + err;
-        console.error(err);
+        statusEl.innerText = "❌ Error: " + err.message;
       }
     }
 
-    // Detection loop
-    async function runDetection() {
-      const displaySize = { width: video.width, height: video.height };
-      faceapi.matchDimensions(overlay, displaySize);
-
-      setInterval(async () => {
-        if (video.readyState === 4) {
-          const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks();
-
-          ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-          if (detections.length > 0) {
-            const resized = faceapi.resizeResults(detections, displaySize);
-            faceapi.draw.drawDetections(overlay, resized);
-            faceapi.draw.drawFaceLandmarks(overlay, resized);
-          }
-        }
-      }, 200);
-    }
-
-    // Capture face
-    document.getElementById("captureBtn").addEventListener("click", async () => {
+    // Capture & Save student
+    async function captureAndSave() {
       const name = document.getElementById("studentName").value.trim();
-      if (!name) return alert("⚠️ Enter student name");
+      if (!name) { alert("Enter student name"); return; }
 
       const detection = await faceapi
         .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks()
         .withFaceDescriptor();
 
-      if (!detection) {
-        alert("❌ No face detected. Try again.");
-        return;
+      if (!detection) { alert("No face detected"); return; }
+
+      const descriptor = Array.from(detection.descriptor);
+      descLengthEl.innerText = `Descriptor length: ${descriptor.length}`;
+
+      try {
+        const res = await fetch(WEBAPP_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "addStudent", name: name, descriptor: JSON.stringify(descriptor) })
+        });
+        const result = await res.json();
+        if (result.status === "success") {
+          statusEl.innerText = `✅ Saved ${name}`;
+          await loadStudents(); // refresh descriptors
+        } else {
+          statusEl.innerText = "❌ Save Error: " + JSON.stringify(result);
+        }
+      } catch (err) {
+        statusEl.innerText = "❌ Save Error: " + err.message;
       }
+    }
 
-      const descriptor = detection.descriptor;
-      descriptorPreview.textContent = `Descriptor Length: ${descriptor.length}`;
+    // Load students & create LabeledFaceDescriptors
+    async function loadStudents() {
+      try {
+        const res = await fetch(WEBAPP_URL + "?action=getStudents");
+        const students = await res.json();
 
-      // Save to Google Sheets
-  fetch(SHEET_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "addStudent",
-          name: name,
-          descriptor: JSON.stringify(Array.from(descriptor))
-        })
-      })
-      .then(res => res.text())
-      .then(txt => alert("✅ Saved " + name + " to Google Sheet"))
-      .catch(err => alert("❌ Error saving: " + err));
-    });
+        labeledDescriptors = students.map(s => {
+          let descArray = [];
+          try { descArray = JSON.parse(s.descriptor); } 
+          catch(e) { console.warn("Bad descriptor for", s.name); }
+          return new faceapi.LabeledFaceDescriptors(s.name, [new Float32Array(descArray)]);
+        });
 
+        faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.5);
+        statusEl.innerText = `Loaded ${labeledDescriptors.length} students`;
+      } catch (err) {
+        statusEl.innerText = "❌ Error loading students: " + err.message;
+      }
+    }
 
-    // Init
-    document.addEventListener("DOMContentLoaded", loadModels);
+    // Detection & recognition loop
+    async function detectAndRecognize() {
+      if (video.readyState !== 4 || !faceMatcher) return;
+
+      const displaySize = { width: video.width, height: video.height };
+      faceapi.matchDimensions(overlay, displaySize);
+
+      const detections = await faceapi
+        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+      const resized = faceapi.resizeResults(detections, displaySize);
+
+      resized.forEach(d => {
+        const bestMatch = faceMatcher.findBestMatch(d.descriptor);
+        const box = d.detection.box;
+        ctx.strokeStyle = "green";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
+        ctx.fillStyle = "green";
+        ctx.font = "16px Arial";
+        ctx.fillText(bestMatch.toString(), box.x, box.y > 20 ? box.y - 5 : box.y + 15);
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
   </script>
 </body>
 </html>
-
-
-
