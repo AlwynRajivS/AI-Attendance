@@ -76,7 +76,7 @@ th{background:#4CAF50;color:white;}
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
 <script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRJSwoxxzqTaO5nfVfZ4RBTpX08U4jel2BGb7V2G8EQvFImDr2qTP2lQEOOz42VjSqdg/exec"; // Replace with your deployed GAS Web App link
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzMPvC3S3mGFKZpr3QjnV7TtUQyBkz8adQeprsm3ZPM9fuEPIJ_Iyzu7mvM5VzKn8DfQQ/exec"; // replace with your deployed Apps Script link
 
 // --- Tabs ---
 function openTab(tabId){
@@ -122,7 +122,7 @@ async function startVideo(){
   }
 }
 
-// Detection loop to show overlay
+// Detection loop
 async function detectFaceLoop(){
   const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 });
   const displaySize = { width: video.width, height: video.height };
@@ -133,13 +133,13 @@ async function detectFaceLoop(){
     const detections = await faceapi.detectAllFaces(video, options)
         .withFaceLandmarks()
         .withFaceDescriptors();
-    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+    const resized = faceapi.resizeResults(detections, displaySize);
     canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
-    faceapi.draw.drawDetections(canvas,resizedDetections);
+    faceapi.draw.drawDetections(canvas,resized);
   }, 200);
 }
 
-// Capture face and push to Google Sheet
+// Capture face + send descriptor
 async function captureFace(){
   if(!modelsLoaded) return alert("Models not loaded!");
   const name = document.getElementById("studentName").value.trim();
@@ -152,7 +152,7 @@ async function captureFace(){
       .withFaceDescriptor();
 
   if(!detection){
-    alert("⚠️ No face detected! Make sure your face is in view and well-lit.");
+    alert("⚠️ No face detected!");
     return;
   }
 
@@ -167,7 +167,7 @@ async function captureFace(){
       sheet: "Students",
       name: name,
       class: cls,
-      descriptor: descriptorArray
+      descriptor: JSON.stringify(descriptorArray)  // stored as string
     })
   })
   .then(res => res.text())
@@ -187,8 +187,12 @@ async function loadStudents(){
   }
   const cls=classSel.value;
   const students=await fetch(SCRIPT_URL+"?action=getStudents").then(r=>r.json());
-  let html="<table><tr><th>Name</th><th>Class</th></tr>";
-  students.filter(s=>!cls||s[1]==cls).forEach(s=>html+=`<tr><td>${s[0]}</td><td>${s[1]}</td></tr>`);
+  let html="<table><tr><th>Name</th><th>Class</th><th>Descriptor (first 5)</th></tr>";
+  students.filter(s=>!cls||s[1]==cls).forEach(s=>{
+    let parsed;
+    try{ parsed = JSON.parse(s[2]); }catch(e){ parsed = []; }
+    html+=`<tr><td>${s[0]}</td><td>${s[1]}</td><td>[${parsed.slice(0,5).map(v=>v.toFixed(2)).join(", ")}...]</td></tr>`;
+  });
   html+="</table>";
   document.getElementById("studentsTable").innerHTML=html;
 }
