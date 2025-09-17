@@ -108,23 +108,28 @@
       descriptorPreview.textContent = `Descriptor Length: ${descriptor.length}`;
 
       // Save to Google Sheets
-      fetch(SHEET_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "addStudent",
-          name: name,
-          descriptor: JSON.stringify(Array.from(descriptor))
-        })
-      })
-      .then(res => res.text())
-      .then(txt => alert("✅ Saved " + name + " to Google Sheet"))
-      .catch(err => alert("❌ Error saving: " + err));
-    });
+     fetch("YOUR_WEBAPP_URL", {
+  method: "POST",
+  mode: "cors",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ action: "saveDescriptor", data: descriptor })
+})
+.then(res => res.json())
+.then(data => {
+  console.log("Saved:", data);
+})
+.catch(err => {
+  console.error("Error Saving:", err);
+  alert("Save failed: " + err);
+});
+
 
     // Init
     document.addEventListener("DOMContentLoaded", loadModels);
   </script>
 </body>
 </html>
+
 
