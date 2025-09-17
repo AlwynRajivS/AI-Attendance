@@ -2,84 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Face Training & Recognition</title>
+<title>Admin Face Capture & Recognition</title>
 <style>
-  body {
-    font-family: Arial, sans-serif;
-    text-align: center;
-    background: #f0f2f5;
-    margin: 0;
-    padding: 0 10px;
-  }
-  h1 {
-    background: #4CAF50;
-    color: white;
-    padding: 15px;
-    margin: 0;
-    font-size: 1.5em;
-  }
-  .camera-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 100%;
-    margin-top: 15px;
-  }
-  video, canvas {
-    width: 100%;
-    max-width: 480px;
-    border: 2px solid #444;
-    border-radius: 10px;
-    margin-bottom: 10px;
-  }
-  .controls {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 15px;
-    width: 100%;
-    max-width: 480px;
-  }
-  input, button {
-    padding: 10px;
-    margin: 5px 0;
-    font-size: 1em;
-    border-radius: 5px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  #descriptorPreview {
-    margin-top: 10px;
-    font-weight: bold;
-    color: green;
-    word-wrap: break-word;
-  }
-  #status {
-    font-weight: bold;
-    color: red;
-    margin-top: 10px;
-    word-wrap: break-word;
-  }
-  .recognition-card {
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.2);
-    padding: 15px;
-    margin-top: 15px;
-    width: 100%;
-    max-width: 480px;
-    text-align: left;
-    word-wrap: break-word;
-  }
-  .recognition-card h3 {
-    margin-top: 0;
-    font-size: 1.2em;
-    color: #4CAF50;
-  }
-  .recognition-card p {
-    margin: 5px 0;
-    font-size: 1em;
+  body { font-family: Arial,sans-serif; background:#f0f2f5; margin:0; text-align:center; }
+  h1 { background:#4CAF50; color:white; padding:15px; margin:0; }
+  #video, #overlay { border:2px solid #444; border-radius:10px; margin:10px auto; width:90%; max-width:480px; height:auto; }
+  input, button { padding:10px; margin:5px; font-size:16px; border-radius:5px; }
+  #descriptorPreview { font-weight:bold; color:green; margin-top:5px; }
+  #status { font-weight:bold; color:red; margin:10px; }
+  #recognitionCard { margin:10px auto; padding:10px; border-radius:10px; background:white; box-shadow:0 2px 5px rgba(0,0,0,0.2); max-width:480px; text-align:left; }
+  .camera-buttons { margin:10px; }
+  .camera-buttons button { margin:0 5px; }
+  @media(max-width:600px){
+    #video, #overlay { width:95%; }
+    input, button { width:90%; }
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -89,23 +25,21 @@
 <h1>📸 Admin – Face Capture & Recognition</h1>
 <p id="status">⏳ Loading models...</p>
 
-<div class="camera-container">
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="overlay"></canvas>
-
-  <div class="controls">
-    <input type="text" id="studentName" placeholder="Enter Student Name">
-    <button id="captureBtn">Capture & Save</button>
-  </div>
-
-  <p id="descriptorPreview">Descriptor Length: 0</p>
-
-  <!-- Responsive Recognition Card -->
-  <div class="recognition-card">
-    <h3>Recognition Results</h3>
-    <p id="recognitionResult">N/A</p>
-  </div>
+<div class="camera-buttons">
+  <button id="frontCamBtn">Front Camera</button>
+  <button id="backCamBtn">Back Camera</button>
 </div>
+
+<video id="video" autoplay muted playsinline></video>
+<canvas id="overlay"></canvas>
+
+<div>
+  <input type="text" id="studentName" placeholder="Enter Student Name">
+  <button id="captureBtn">Capture & Save</button>
+</div>
+
+<p id="descriptorPreview">Descriptor Length: 0</p>
+<div id="recognitionCard">Recognition: N/A</div>
 
 <script>
 const video = document.getElementById("video");
@@ -113,142 +47,124 @@ const overlay = document.getElementById("overlay");
 const ctx = overlay.getContext("2d");
 const statusEl = document.getElementById("status");
 const descriptorPreview = document.getElementById("descriptorPreview");
-const recognitionResult = document.getElementById("recognitionResult");
+const recognitionCard = document.getElementById("recognitionCard");
 
-// Replace with your deployed Google Apps Script URL
-const SHEET_URL = "https://script.google.com/macros/s/AKfycbzAX7bZpj2FvFDMhpSIUM2fmYbqOWIY5oK0Il-Qkj4ej4c5DbnVjTgPd_QzYaaXw1hv9w/exec";
-
+const SHEET_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL"; // replace with your deployed GAS URL
 let labeledFaceDescriptors = [];
 let faceMatcher = null;
+let currentStream = null;
 
-// --- Load models ---
-async function loadModels() {
+// --- Load Face API models ---
+async function loadModels(){
   try {
     const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models/";
     await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
     await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
     await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-
     statusEl.textContent = "✅ Models loaded!";
-    await startVideo();
+    await startCamera("user");
     await loadStudentsDescriptors();
     runDetection();
-  } catch (err) {
-    statusEl.textContent = "❌ Error loading models: " + err;
+  } catch(err){
+    statusEl.textContent = "❌ Error loading models: "+err;
     console.error(err);
   }
 }
 
-// --- Start webcam (front camera) ---
-async function startVideo() {
+// --- Start camera ---
+async function startCamera(facing="user"){ // "user"=front, "environment"=back
   try {
+    if(currentStream){
+      currentStream.getTracks().forEach(track=>track.stop());
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" }, // front camera
-      audio: false
+      video:{ facingMode:facing, width:{ideal:480}, height:{ideal:360} },
+      audio:false
     });
+    currentStream = stream;
     video.srcObject = stream;
-    await new Promise(resolve => video.onloadedmetadata = () => resolve());
-    console.log("✅ Camera started");
-  } catch (err) {
-    statusEl.textContent = "❌ Webcam error: " + err;
+    await new Promise(resolve => video.onloadedmetadata = ()=>resolve());
+    video.play();
+  } catch(err){
+    statusEl.textContent = "❌ Webcam error: "+err;
     console.error(err);
   }
 }
 
-// --- Load students descriptors from Google Sheet ---
-async function loadStudentsDescriptors() {
+// --- Load student descriptors ---
+async function loadStudentsDescriptors(){
   try {
     const res = await fetch(`${SHEET_URL}?action=getStudents`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-
-    labeledFaceDescriptors = data.map(s => 
-      new faceapi.LabeledFaceDescriptors(
-        s.name,
-        [new Float32Array(JSON.parse(s.descriptor))]
-      )
-    );
-
-    if (labeledFaceDescriptors.length > 0) {
+    labeledFaceDescriptors = data.map(s => new faceapi.LabeledFaceDescriptors(s.name, [new Float32Array(JSON.parse(s.descriptor))]));
+    if(labeledFaceDescriptors.length>0){
       faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
-      recognitionResult.textContent = "Ready to recognize faces!";
+      recognitionCard.textContent = "Recognition: Ready!";
     } else {
-      recognitionResult.textContent = "No students saved yet";
+      recognitionCard.textContent = "Recognition: No students saved";
     }
-  } catch (err) {
+  } catch(err){
     console.error("❌ Error loading student descriptors:", err);
-    recognitionResult.textContent = "Error loading students";
+    recognitionCard.textContent = "Recognition: Error loading students";
   }
 }
 
 // --- Detection & Recognition loop ---
-async function runDetection() {
+async function runDetection(){
   const displaySize = { width: video.width, height: video.height };
   faceapi.matchDimensions(overlay, displaySize);
-
-  setInterval(async () => {
-    if (video.readyState === 4) {
+  setInterval(async()=>{
+    if(video.readyState===4){
       const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks()
         .withFaceDescriptors();
-
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-      if (detections.length > 0) {
+      ctx.clearRect(0,0,overlay.width,overlay.height);
+      if(detections.length>0){
         const resized = faceapi.resizeResults(detections, displaySize);
         faceapi.draw.drawDetections(overlay, resized);
         faceapi.draw.drawFaceLandmarks(overlay, resized);
-
-        if (faceMatcher) {
-          const results = resized.map(d => faceMatcher.findBestMatch(d.descriptor));
-          recognitionResult.textContent = results.map(r => r.toString()).join(", ");
+        if(faceMatcher){
+          const results = resized.map(d=>faceMatcher.findBestMatch(d.descriptor));
+          recognitionCard.textContent = "Recognition: " + results.map(r=>r.toString()).join(", ");
         }
       } else {
-        recognitionResult.textContent = "N/A";
+        recognitionCard.textContent = "Recognition: N/A";
       }
     }
   }, 200);
 }
 
-// --- Capture face & save ---
-document.getElementById("captureBtn").addEventListener("click", async () => {
+// --- Capture & Save ---
+document.getElementById("captureBtn").addEventListener("click", async()=>{
   const name = document.getElementById("studentName").value.trim();
-  if (!name) return alert("⚠️ Enter student name");
-
-  try {
-    const detection = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+  if(!name) return alert("⚠️ Enter student name");
+  try{
+    const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
       .withFaceLandmarks()
       .withFaceDescriptor();
-
-    if (!detection) {
-      alert("❌ No face detected. Try again.");
-      return;
-    }
-
+    if(!detection){ alert("❌ No face detected"); return; }
     const descriptor = Array.from(detection.descriptor);
     descriptorPreview.textContent = `Descriptor Length: ${descriptor.length}`;
-
-    const response = await fetch(SHEET_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "addStudent", name, descriptor: JSON.stringify(descriptor) })
+    const response = await fetch(SHEET_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:"addStudent", name:name, descriptor:JSON.stringify(descriptor)})
     });
-
-    if (!response.ok) throw new Error(await response.text());
+    if(!response.ok) throw new Error(await response.text());
     const result = await response.json();
-    alert("✅ Saved " + result.name + " to Google Sheet");
-
-    // Reload descriptors
-    await loadStudentsDescriptors();
-  } catch (err) {
-    console.error(err);
-    alert("❌ Error saving: " + err);
-  }
+    alert("✅ Saved "+result.name+" to Google Sheet");
+    await loadStudentsDescriptors(); // reload
+  } catch(err){ console.error(err); alert("❌ Error saving: "+err); }
 });
+
+// --- Camera toggle buttons ---
+document.getElementById("frontCamBtn").addEventListener("click", ()=>startCamera("user"));
+document.getElementById("backCamBtn").addEventListener("click", ()=>startCamera("environment"));
 
 // --- Init ---
 document.addEventListener("DOMContentLoaded", loadModels);
 </script>
+
 </body>
 </html>
