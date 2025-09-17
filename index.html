@@ -108,7 +108,7 @@
       descriptorPreview.textContent = `Descriptor Length: ${descriptor.length}`;
 
       // Save to Google Sheets
-     fetch("YOUR_WEBAPP_URL", {
+     fetch(SHEET_URL, {
   method: "POST",
   mode: "cors",
   headers: {
